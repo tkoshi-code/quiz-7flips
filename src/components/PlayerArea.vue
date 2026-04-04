@@ -5,7 +5,6 @@
       'player-area--active': isActive,
       'player-area--busted': player.busted,
       'player-area--passed': player.passed && !player.busted,
-      'player-area--current': isCurrent,
     }"
   >
     <!-- ヘッダー -->
@@ -14,7 +13,6 @@
       <span class="player-area__status">
         <template v-if="player.busted">💥 バスト</template>
         <template v-else-if="player.passed">✅ パス済み</template>
-        <template v-else-if="isCurrent">▶ ターン中</template>
       </span>
       <span class="player-area__score">
         累計: <strong>{{ player.totalScore }}</strong>点
@@ -75,7 +73,6 @@ import { calculateRoundScore } from '../game/cards.js'
 
 const props = defineProps({
   player: { type: Object, required: true },
-  isCurrent: { type: Boolean, default: false },
   isActive: { type: Boolean, default: false },
   lastDrawnCard: { type: Object, default: null },
 })

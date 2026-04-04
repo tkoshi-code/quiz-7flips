@@ -5,13 +5,13 @@
     <div v-if="gameState.phase === 'setup'" class="setup-screen">
       <div class="setup-card">
         <h1 class="setup-title">🃏 Flip 7</h1>
-        <p class="setup-sub">7種類の数字を集めるか、200点先取で勝利！</p>
+        <p class="setup-sub">クイズ正解者がカードを引く！7種類で Flip 7 達成！</p>
 
         <div class="setup-section">
           <label>プレイヤー数</label>
-          <div class="player-count-btns">
+          <div class="count-btns">
             <button
-              v-for="n in [2,3,4]"
+              v-for="n in [2,3,4,5,6]"
               :key="n"
               class="count-btn"
               :class="{ active: playerCount === n }"
@@ -22,7 +22,7 @@
 
         <div class="setup-section">
           <label>目標スコア</label>
-          <div class="player-count-btns">
+          <div class="count-btns">
             <button
               v-for="s in [100, 200, 300]"
               :key="s"
@@ -42,16 +42,6 @@
               :placeholder="`プレイヤー ${i + 1}`"
               maxlength="12"
             />
-            <button
-              class="type-btn"
-              :class="{ 'human-active': cfg.isHuman }"
-              @click="cfg.isHuman = true"
-            >👤 人間</button>
-            <button
-              class="type-btn"
-              :class="{ 'ai-active': !cfg.isHuman }"
-              @click="cfg.isHuman = false"
-            >🤖 CPU</button>
           </div>
         </div>
 
@@ -61,7 +51,8 @@
           <details>
             <summary>ルール概要を見る</summary>
             <ul>
-              <li>ターンに1枚引くか、パスを選択</li>
+              <li>クイズに正解したプレイヤーを選択 → そのプレイヤーが1枚引く</li>
+              <li>引いた後、<strong>パスする</strong>か<strong>続ける</strong>かを選択</li>
               <li>重複する数字を引いたら<strong>バスト</strong>（そのラウンド0点）</li>
               <li>7種類の数字を集めると<strong>Flip 7達成！</strong> ラウンド即終了＋15点</li>
               <li>❄️ フリーズ：対象プレイヤーを強制パス</li>
@@ -79,11 +70,13 @@
     <template v-else>
       <GameBoard
         :state="gameState"
-        :currentPlayer="currentPlayer"
         :validTargets="validTargets"
-        @draw="playerDraw"
-        @pass="playerPass"
+        :canUndo="canUndo"
+        @selectDrawer="selectDrawer"
+        @confirmPass="confirmPassChoice"
         @selectTarget="playerSelectTarget"
+        @endRound="endRoundNow"
+        @undo="undo"
       />
 
       <RoundSummary
@@ -106,27 +99,31 @@ import RoundSummary from './components/RoundSummary.vue'
 
 const {
   state: gameState,
-  currentPlayer,
+  canUndo,
   startGame: startGameFn,
-  playerDraw,
-  playerPass,
+  selectDrawer,
+  confirmPassChoice,
   playerSelectTarget,
   nextRound,
   getValidTargets,
+  endRoundNow,
+  undo,
 } = useGame()
 
-const playerCount = ref(2)
+const playerCount = ref(3)
 const winScore = ref(200)
 const playerConfigs = reactive([
-  { name: 'あなた', isHuman: true },
-  { name: 'CPU-1', isHuman: false },
-  { name: 'CPU-2', isHuman: false },
-  { name: 'CPU-3', isHuman: false },
+  { name: 'プレイヤー1' },
+  { name: 'プレイヤー2' },
+  { name: 'プレイヤー3' },
+  { name: 'プレイヤー4' },
+  { name: 'プレイヤー5' },
+  { name: 'プレイヤー6' },
 ])
 
 const validTargets = computed(() => {
   if (gameState.phase !== 'targeting' || !gameState.pendingAction) return []
-  return getValidTargets(gameState.pendingAction.sourceIndex)
+  return getValidTargets(gameState.pendingAction.sourceIndex, gameState.pendingAction.card)
 })
 
 function startGame() {
@@ -134,7 +131,6 @@ function startGame() {
   startGameFn(
     playerConfigs.slice(0, playerCount.value).map(c => ({
       name: c.name || '???',
-      isHuman: c.isHuman,
     }))
   )
 }
@@ -201,7 +197,7 @@ function handleNext() {
   margin-bottom: 8px;
 }
 
-.player-count-btns {
+.count-btns {
   display: flex;
   gap: 8px;
 }
@@ -246,18 +242,18 @@ function handleNext() {
 .setup-player-num {
   color: #546e7a;
   font-size: 0.8rem;
-  width: 22px;
+  width: 28px;
   flex-shrink: 0;
 }
 
 .setup-name-input {
   flex: 1;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: rgba(255,255,255,0.07);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 6px;
   color: #eceff1;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   outline: none;
   font-family: inherit;
   transition: border-color 0.15s;
@@ -265,31 +261,6 @@ function handleNext() {
 
 .setup-name-input:focus { border-color: #42a5f5; }
 .setup-name-input::placeholder { color: #37474f; }
-
-.type-btn {
-  padding: 6px 10px;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  background: rgba(255,255,255,0.04);
-  color: #546e7a;
-  cursor: pointer;
-  font-size: 0.78rem;
-  transition: all 0.15s;
-  white-space: nowrap;
-  font-family: inherit;
-}
-
-.type-btn.human-active {
-  background: rgba(66,165,250,0.2);
-  border-color: #42a5f5;
-  color: #90caf9;
-}
-
-.type-btn.ai-active {
-  background: rgba(239,83,80,0.2);
-  border-color: #ef5350;
-  color: #ef9a9a;
-}
 
 .btn-start {
   width: 100%;

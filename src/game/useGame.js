@@ -1,33 +1,64 @@
 import { reactive, computed } from 'vue'
 import { buildDeck, shuffleArray, CARD_TYPES, ACTION_NAMES, calculateRoundScore } from './cards.js'
 
-const AI_DELAY = 900 // ms
+const FLIP_THREE_DELAY = 900 // ms
+const MAX_HISTORY = 15
 
 export function useGame() {
+  // リアクティブ外で管理（スナップショットのネスト回避）
+  const history = []
+
   const state = reactive({
-    phase: 'setup', // setup | playing | targeting | roundEnd | gameEnd
+    phase: 'setup', // setup | selectDrawer | confirmPass | targeting | roundEnd | gameEnd
     players: [],
     deck: [],
     discardPile: [],
-    currentPlayerIndex: 0,
     startPlayerIndex: 0,
     roundNumber: 1,
-    pendingAction: null,   // { card, sourceIndex }
-    flipThreeState: null,  // { targetIndex, cardsRemaining, deferredActions }
-    actionQueue: [],       // [{ card, sourceIndex }]
+    pendingAction: null,    // { card, sourceIndex }
+    flipThreeState: null,   // { targetIndex, cardsRemaining, deferredActions }
+    actionQueue: [],        // [{ card, sourceIndex }]
+    lastDrawerIndex: null,  // 直前にカードを引いたプレイヤー（confirmPass用）
     log: [],
     lastDrawnCard: null,
     winScore: 200,
   })
 
-  const currentPlayer = computed(() => state.players[state.currentPlayerIndex])
   const activePlayers = computed(() => state.players.filter(p => !p.passed && !p.busted))
+  const canUndo = computed(() => history.length > 0)
 
-  // ---- Setup ----
+  // ---- 履歴（undo） ----
 
-  function createPlayer(name, isHuman) {
+  function _saveSnapshot() {
+    const snap = JSON.parse(JSON.stringify({
+      phase: state.phase,
+      players: state.players,
+      deck: state.deck,
+      discardPile: state.discardPile,
+      startPlayerIndex: state.startPlayerIndex,
+      roundNumber: state.roundNumber,
+      pendingAction: state.pendingAction,
+      flipThreeState: state.flipThreeState,
+      actionQueue: state.actionQueue,
+      lastDrawerIndex: state.lastDrawerIndex,
+      log: state.log,
+      lastDrawnCard: state.lastDrawnCard,
+    }))
+    history.push(snap)
+    if (history.length > MAX_HISTORY) history.shift()
+  }
+
+  function undo() {
+    if (history.length === 0) return
+    const snap = history.pop()
+    Object.assign(state, snap)
+  }
+
+  // ---- セットアップ ----
+
+  function createPlayer(name) {
     return {
-      name, isHuman,
+      name,
       totalScore: 0,
       tableau: [],
       modifiers: [],
@@ -40,7 +71,7 @@ export function useGame() {
   }
 
   function startGame(playerConfigs) {
-    state.players = playerConfigs.map(p => createPlayer(p.name, p.isHuman))
+    state.players = playerConfigs.map(p => createPlayer(p.name))
     state.roundNumber = 1
     state.startPlayerIndex = 0
     state.deck = buildDeck()
@@ -53,6 +84,7 @@ export function useGame() {
     state.flipThreeState = null
     state.pendingAction = null
     state.actionQueue = []
+    state.lastDrawerIndex = null
     state.log = []
 
     for (const p of state.players) {
@@ -76,14 +108,12 @@ export function useGame() {
       if (card) _resolveCard(idx, card, true)
     }
 
-    state.currentPlayerIndex = state.startPlayerIndex
-    _skipToActive()
-
     if (activePlayers.value.length === 0) {
       _endRound()
+    } else if (state.actionQueue.length > 0) {
+      _processQueue()
     } else {
-      state.phase = 'playing'
-      _scheduleAI()
+      state.phase = 'selectDrawer'
     }
   }
 
@@ -104,7 +134,7 @@ export function useGame() {
     state.discardPile = []
   }
 
-  // カードを解決して結果を返す: 'ok' | 'bust' | 'flip7' | 'needsTarget'
+  // カードを解決: 'ok' | 'bust' | 'flip7' | 'needsTarget'
   function _resolveCard(playerIndex, card, isInitialDeal = false) {
     const player = state.players[playerIndex]
     state.lastDrawnCard = card
@@ -169,28 +199,11 @@ export function useGame() {
 
     // Freeze / FlipThree → 対象選択が必要
     if (isInitialDeal) {
-      // 初期配布時は自動ターゲット
-      _autoExecuteTargeted(drawerIndex, card)
+      // フリーズ・フリップ3ともに初期配布でも対象選択UIを出す
+      state.actionQueue.push({ card, sourceIndex: drawerIndex })
       return 'ok'
     }
     return 'needsTarget'
-  }
-
-  function _autoExecuteTargeted(sourceIndex, card) {
-    const targets = activePlayers.value.filter(p => state.players.indexOf(p) !== sourceIndex)
-    if (targets.length === 0) { state.discardPile.push(card); return }
-    let targetIdx
-    if (card.name === ACTION_NAMES.FREEZE) {
-      // 最高スコアの相手をフリーズ
-      let best = targets[0]
-      for (const t of targets) {
-        if (_runningScore(t) > _runningScore(best)) best = t
-      }
-      targetIdx = state.players.indexOf(best)
-    } else {
-      targetIdx = state.players.indexOf(targets[Math.floor(Math.random() * targets.length)])
-    }
-    _executeTargeted(sourceIndex, targetIdx, card)
   }
 
   function _executeTargeted(sourceIndex, targetIndex, card) {
@@ -268,7 +281,6 @@ export function useGame() {
             }
           }
         } else {
-          // Freeze / FlipThree は後で処理
           _log(`${_actionLabel(card)} を後で処理`)
           state.flipThreeState.deferredActions.push({ card, sourceIndex: targetIndex })
         }
@@ -276,7 +288,7 @@ export function useGame() {
 
       state.flipThreeState.cardsRemaining--
       _flipThreeNext()
-    }, AI_DELAY)
+    }, FLIP_THREE_DELAY)
   }
 
   function _finishFlipThree(isFlip7 = false) {
@@ -290,22 +302,25 @@ export function useGame() {
     }
 
     for (const d of deferred) state.actionQueue.push(d)
-
     if (_checkRoundEnd()) return
     _processQueue()
   }
 
-  // ---- プレイヤー操作 ----
+  // ---- プレイヤー操作（クイズモード） ----
 
-  function playerDraw() {
-    if (state.phase !== 'playing') return
-    const player = currentPlayer.value
+  // ホストが「このプレイヤーが正解した」と選んでカードを引かせる
+  function selectDrawer(playerIndex) {
+    if (state.phase !== 'selectDrawer') return
+    _saveSnapshot()
+    const player = state.players[playerIndex]
     if (!player || player.busted || player.passed) return
+
+    state.lastDrawerIndex = playerIndex
 
     const card = _draw()
     if (!card) return
 
-    const result = _resolveCard(state.currentPlayerIndex, card)
+    const result = _resolveCard(playerIndex, card)
 
     if (result === 'flip7') {
       _endRound()
@@ -313,57 +328,52 @@ export function useGame() {
     }
 
     if (result === 'needsTarget') {
-      const targets = getValidTargets(state.currentPlayerIndex)
+      const targets = getValidTargets(playerIndex, card)
       if (targets.length === 0) {
         _log(`対象なし、${_actionLabel(card)} をスキップ`)
         state.discardPile.push(card)
         if (_checkRoundEnd()) return
-        _scheduleAI()
+        _afterDraw()
         return
       }
-      state.pendingAction = { card, sourceIndex: state.currentPlayerIndex }
-      if (player.isHuman) {
-        state.phase = 'targeting'
-      } else {
-        _autoExecuteTargeted(state.currentPlayerIndex, card)
-        state.pendingAction = null
-        if (!state.flipThreeState) {
-          if (_checkRoundEnd()) return
-          _processQueue()
-        }
-      }
+      state.pendingAction = { card, sourceIndex: playerIndex }
+      state.phase = 'targeting'
       return
     }
 
-    // bust or ok
     if (_checkRoundEnd()) return
+
     if (result === 'bust') {
-      _advancePlayer()
+      // バストしたのでパス確認不要、そのまま選択画面へ
+      state.phase = 'selectDrawer'
     } else {
-      // ターン継続（もう一度引くかパスか選べる）
-      // AIの場合は少し待ってから再判断
-      _scheduleAI()
+      // 引けた → パスするか確認
+      state.phase = 'confirmPass'
     }
   }
 
-  function playerPass() {
-    if (state.phase !== 'playing') return
-    const player = currentPlayer.value
-    if (!player || player.busted || player.passed) return
+  // 引いた後：パスするか継続するか
+  function confirmPassChoice(doPass) {
+    if (state.phase !== 'confirmPass') return
+    _saveSnapshot()
+    const player = state.players[state.lastDrawerIndex]
+    if (!player) return
 
-    player.passed = true
-    _log(`${player.name} がパス（確定スコア: ${_runningScore(player)}点）`)
+    if (doPass) {
+      player.passed = true
+      _log(`${player.name} がパス（確定スコア: ${_runningScore(player)}点）`)
+      if (_checkRoundEnd()) return
+    }
 
-    if (_checkRoundEnd()) return
-    _advancePlayer()
+    state.phase = 'selectDrawer'
   }
 
   function playerSelectTarget(targetIndex) {
     if (state.phase !== 'targeting' || !state.pendingAction) return
+    _saveSnapshot()
 
     const { card, sourceIndex } = state.pendingAction
     state.pendingAction = null
-    state.phase = 'playing'
 
     _executeTargeted(sourceIndex, targetIndex, card)
 
@@ -371,20 +381,28 @@ export function useGame() {
       if (_checkRoundEnd()) return
       _processQueue()
     }
-    // flipThreeState が設定された場合は _flipThreeNext が自動進行
   }
 
   // ---- 内部進行 ----
 
+  function _afterDraw() {
+    if (_checkRoundEnd()) return
+    const drawer = state.players[state.lastDrawerIndex]
+    if (!drawer || drawer.busted) {
+      state.phase = 'selectDrawer'
+    } else {
+      state.phase = 'confirmPass'
+    }
+  }
+
   function _processQueue() {
     if (state.actionQueue.length === 0) {
-      _advancePlayer()
+      _afterDraw()
       return
     }
 
     const action = state.actionQueue.shift()
-    const source = state.players[action.sourceIndex]
-    const targets = getValidTargets(action.sourceIndex)
+    const targets = getValidTargets(action.sourceIndex, action.card)
 
     if (targets.length === 0) {
       _log(`対象なし、${_actionLabel(action.card)} をスキップ`)
@@ -394,47 +412,9 @@ export function useGame() {
       return
     }
 
-    if (source.isHuman) {
-      state.pendingAction = action
-      state.phase = 'targeting'
-    } else {
-      _autoExecuteTargeted(action.sourceIndex, action.card)
-      if (!state.flipThreeState) {
-        if (_checkRoundEnd()) return
-        _processQueue()
-      }
-    }
-  }
-
-  function _advancePlayer() {
-    if (_checkRoundEnd()) return
-
-    const n = state.players.length
-    let next = (state.currentPlayerIndex + 1) % n
-    for (let i = 0; i < n; i++) {
-      const p = state.players[next]
-      if (!p.busted && !p.passed) {
-        state.currentPlayerIndex = next
-        _scheduleAI()
-        return
-      }
-      next = (next + 1) % n
-    }
-
-    _endRound()
-  }
-
-  function _skipToActive() {
-    const n = state.players.length
-    let idx = state.currentPlayerIndex
-    for (let i = 0; i < n; i++) {
-      const p = state.players[idx]
-      if (!p.busted && !p.passed) {
-        state.currentPlayerIndex = idx
-        return
-      }
-      idx = (idx + 1) % n
-    }
+    // フリップ3の遅延アクションは常に対象選択UIを表示
+    state.pendingAction = action
+    state.phase = 'targeting'
   }
 
   function _checkRoundEnd() {
@@ -443,33 +423,6 @@ export function useGame() {
       return true
     }
     return false
-  }
-
-  function _scheduleAI() {
-    const player = currentPlayer.value
-    if (player && !player.isHuman && state.phase === 'playing') {
-      setTimeout(_doAITurn, AI_DELAY)
-    }
-  }
-
-  function _doAITurn() {
-    if (state.phase !== 'playing') return
-    const player = currentPlayer.value
-    if (!player || player.isHuman || player.busted || player.passed) return
-
-    const score = _runningScore(player)
-    const cards = player.tableau.length
-    let passProb = 0
-    if (cards >= 6) passProb = 0.85
-    else if (score >= 35) passProb = 0.7
-    else if (score >= 25) passProb = 0.45
-    else if (score >= 15) passProb = 0.2
-
-    if (Math.random() < passProb) {
-      playerPass()
-    } else {
-      playerDraw()
-    }
   }
 
   // ---- ラウンド終了 ----
@@ -484,7 +437,6 @@ export function useGame() {
       p.totalScore += p.roundScore
     }
 
-    // バストしていないプレイヤーのカードのみ捨て牌に戻す
     for (const p of state.players) {
       if (!p.busted) {
         state.discardPile.push(...p.tableau, ...p.modifiers)
@@ -533,21 +485,31 @@ export function useGame() {
     if (state.log.length > 40) state.log.pop()
   }
 
-  function getValidTargets(sourceIndex) {
+  function getValidTargets(sourceIndex, card = null) {
+    const isFlipThree = card?.name === ACTION_NAMES.FLIP_THREE
     return state.players
       .map((p, i) => ({ player: p, index: i }))
-      .filter(({ player, index }) => index !== sourceIndex && !player.busted && !player.passed)
+      .filter(({ player, index }) => (isFlipThree || index !== sourceIndex) && !player.busted && !player.passed)
+  }
+
+  function endRoundNow() {
+    if (state.phase !== 'selectDrawer') return
+    _saveSnapshot()
+    _log('ラウンドを強制終了')
+    _endRound()
   }
 
   return {
     state,
-    currentPlayer,
     activePlayers,
+    canUndo,
     startGame,
-    playerDraw,
-    playerPass,
+    selectDrawer,
+    confirmPassChoice,
     playerSelectTarget,
     nextRound,
     getValidTargets,
+    endRoundNow,
+    undo,
   }
 }
