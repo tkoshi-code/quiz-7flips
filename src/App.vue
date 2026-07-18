@@ -115,11 +115,34 @@
       />
     </template>
 
+    <div v-if="!isAnnouncementWindow" class="display-scale" aria-label="表示倍率">
+      <button
+        class="display-scale__button"
+        :disabled="displayScale <= DISPLAY_SCALE_MIN"
+        aria-label="表示を縮小"
+        title="表示を縮小"
+        @click="changeDisplayScale(-DISPLAY_SCALE_STEP)"
+      >−</button>
+      <button
+        class="display-scale__value"
+        aria-label="表示倍率を100%に戻す"
+        title="100%に戻す"
+        @click="setDisplayScale(100)"
+      >{{ displayScale }}%</button>
+      <button
+        class="display-scale__button"
+        :disabled="displayScale >= DISPLAY_SCALE_MAX"
+        aria-label="表示を拡大"
+        title="表示を拡大"
+        @click="changeDisplayScale(DISPLAY_SCALE_STEP)"
+      >＋</button>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useGame } from './game/useGame.js'
 import GameBoard from './components/GameBoard.vue'
 import RoundSummary from './components/RoundSummary.vue'
@@ -143,6 +166,32 @@ const {
 
 const isAnnouncementWindow = new URLSearchParams(window.location.search).get('view') === 'announcement'
 const currentView = ref(isAnnouncementWindow ? 'announcement' : 'home')
+
+const DISPLAY_SCALE_KEY = 'piyopiyo_display_scale'
+const DISPLAY_SCALE_MIN = 70
+const DISPLAY_SCALE_MAX = 130
+const DISPLAY_SCALE_STEP = 10
+
+function loadDisplayScale() {
+  const saved = Number(localStorage.getItem(DISPLAY_SCALE_KEY))
+  return saved >= DISPLAY_SCALE_MIN && saved <= DISPLAY_SCALE_MAX ? saved : 100
+}
+
+const displayScale = ref(loadDisplayScale())
+
+function setDisplayScale(value) {
+  displayScale.value = Math.min(DISPLAY_SCALE_MAX, Math.max(DISPLAY_SCALE_MIN, value))
+}
+
+function changeDisplayScale(delta) {
+  setDisplayScale(displayScale.value + delta)
+}
+
+watch(displayScale, value => {
+  localStorage.setItem(DISPLAY_SCALE_KEY, String(value))
+  document.body.style.zoom = isAnnouncementWindow ? '1' : String(value / 100)
+}, { immediate: true })
+
 const selectedCorner = ref(null)
 const showTutorial = ref(false)
 const playerCount = ref(3)
@@ -211,6 +260,53 @@ function handleNext() {
 <style scoped>
 .app {
   min-height: 100vh;
+}
+
+.display-scale {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  background: rgba(8, 20, 10, 0.92);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+
+.display-scale__button,
+.display-scale__value {
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: #b0bec5;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+}
+
+.display-scale__button {
+  width: 36px;
+  font-size: 1.15rem;
+}
+
+.display-scale__value {
+  width: 54px;
+  font-size: 0.78rem;
+  color: #ffd740;
+}
+
+.display-scale__button:hover:not(:disabled),
+.display-scale__value:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+.display-scale__button:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .setup-screen {

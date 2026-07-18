@@ -122,6 +122,25 @@
           <div class="break-preview" v-if="breakTime">
             {{ breakTime }} 分から再開します
           </div>
+          <div class="break-bgm">
+            <label class="break-bgm__toggle">
+              <input v-model="breakBgmEnabled" type="checkbox" />
+              <span>YouTube BGMを再生</span>
+            </label>
+            <div v-if="breakBgmEnabled" class="break-bgm__fields">
+              <label for="break-bgm-url">動画・再生リストURL</label>
+              <input
+                id="break-bgm-url"
+                v-model.trim="breakBgmUrl"
+                class="break-bgm__url"
+                type="url"
+                placeholder="https://www.youtube.com/watch?v=..."
+                @input="breakBgmError = ''"
+              />
+              <span class="break-bgm__hint">設定はこの端末に保存されます</span>
+              <span v-if="breakBgmError" class="break-bgm__error">{{ breakBgmError }}</span>
+            </div>
+          </div>
           <div class="break-modal-actions">
             <button class="break-start-btn" :disabled="!breakTime" @click="startBreak">表示する</button>
             <button class="cancel-btn" @click="showBreakInput = false">キャンセル</button>
@@ -140,7 +159,15 @@
             <span class="break-screen__text"> 分から再開します</span>
           </div>
         </div>
-        <button class="break-screen__close" @click="showBreakScreen = false">✕ 休憩終了</button>
+        <div v-if="activeBreakBgmUrl" class="break-screen__player">
+          <iframe
+            :src="activeBreakBgmUrl"
+            title="休憩中のYouTube BGM"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            allowfullscreen
+          />
+        </div>
+        <button class="break-screen__close" @click="closeBreak">✕ 休憩終了</button>
       </div>
     </Teleport>
 
@@ -266,8 +293,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { PIYOPIYO_CORNERS, TAG_CONFIG } from '../data/corners.js'
+import { toYouTubeEmbedUrl } from '../utils/youtube.js'
 
 const emit = defineEmits(['selectCorner', 'openAnnouncement'])
 
@@ -414,20 +442,59 @@ function removeSectionItem(si, i) { profileDraft.sections[si].items.splice(i, 1)
 const showBreakInput = ref(false)
 const showBreakScreen = ref(false)
 const breakTime = ref('')
+const STORAGE_BREAK_BGM_URL_KEY = 'piyopiyo_break_bgm_url'
+const STORAGE_BREAK_BGM_ENABLED_KEY = 'piyopiyo_break_bgm_enabled'
+const breakBgmUrl = ref(localStorage.getItem(STORAGE_BREAK_BGM_URL_KEY) || '')
+const savedBreakBgmEnabled = localStorage.getItem(STORAGE_BREAK_BGM_ENABLED_KEY)
+const breakBgmEnabled = ref(
+  savedBreakBgmEnabled === null ? Boolean(breakBgmUrl.value) : savedBreakBgmEnabled === 'true'
+)
+const breakBgmError = ref('')
+const activeBreakBgmUrl = ref('')
 
 function openBreak() {
   const now = new Date()
   const h = String(now.getHours()).padStart(2, '0')
   const m = String(now.getMinutes()).padStart(2, '0')
   breakTime.value = `${h}:${m}`
+  breakBgmError.value = ''
   showBreakInput.value = true
 }
 
 function startBreak() {
   if (!breakTime.value) return
+
+  const enteredUrl = breakBgmUrl.value.trim()
+  const embedUrl = enteredUrl ? toYouTubeEmbedUrl(enteredUrl) : ''
+
+  if (breakBgmEnabled.value && !embedUrl) {
+    breakBgmError.value = 'YouTubeの動画または再生リストURLを入力してください'
+    return
+  }
+
+  if (embedUrl) {
+    localStorage.setItem(STORAGE_BREAK_BGM_URL_KEY, enteredUrl)
+  } else {
+    localStorage.removeItem(STORAGE_BREAK_BGM_URL_KEY)
+  }
+  localStorage.setItem(STORAGE_BREAK_BGM_ENABLED_KEY, String(breakBgmEnabled.value))
+  activeBreakBgmUrl.value = breakBgmEnabled.value ? embedUrl : ''
   showBreakInput.value = false
   showBreakScreen.value = true
 }
+
+function closeBreak() {
+  showBreakScreen.value = false
+  activeBreakBgmUrl.value = ''
+}
+
+watch(showBreakScreen, isOpen => {
+  document.body.style.overflow = isOpen ? 'hidden' : ''
+})
+
+onUnmounted(() => {
+  document.body.style.overflow = ''
+})
 
 function startEdit() {
   Object.assign(draft, { ...info })
@@ -613,7 +680,9 @@ function onCardClick(corner) {
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 18px;
   padding: 28px 32px 28px;
-  max-width: 340px;
+  max-width: 440px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -653,6 +722,65 @@ function onCardClick(corner) {
   text-align: center;
   font-size: 0.95rem;
   color: #90a4ae;
+}
+
+.break-bgm {
+  padding: 12px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 10px;
+}
+
+.break-bgm__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfd8dc;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.break-bgm__toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #ffb300;
+}
+
+.break-bgm__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.break-bgm__fields label {
+  color: #78909c;
+  font-size: 0.72rem;
+}
+
+.break-bgm__url {
+  width: 100%;
+  padding: 9px 10px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: #eceff1;
+  font-size: 0.8rem;
+  outline: none;
+  font-family: inherit;
+}
+
+.break-bgm__url:focus { border-color: #ffb300; }
+
+.break-bgm__hint {
+  color: #546e7a;
+  font-size: 0.68rem;
+}
+
+.break-bgm__error {
+  color: #ef5350;
+  font-size: 0.72rem;
 }
 
 .break-modal-actions {
@@ -723,6 +851,36 @@ function onCardClick(corner) {
   font-weight: 700;
   color: #90a4ae;
   margin-top: 8px;
+}
+
+.break-screen__player {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: min(400px, calc(100vw - 48px));
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+}
+
+.break-screen__player iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+@media (max-width: 760px), (max-height: 620px) {
+  .break-screen__player {
+    width: 280px;
+  }
+
+  .break-screen__content {
+    transform: translateY(-90px);
+  }
 }
 
 .break-screen__close {
