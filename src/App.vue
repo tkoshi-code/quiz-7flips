@@ -8,13 +8,13 @@
     <HomeView
       v-else-if="currentView === 'home'"
       @selectCorner="onSelectCorner"
-      @openAnnouncement="currentView = 'announcement'"
+      @openAnnouncement="openAnnouncementWindow"
     />
 
     <!-- 告知スライド -->
     <AnnouncementView
       v-else-if="currentView === 'announcement'"
-      @back="currentView = 'home'"
+      @back="closeAnnouncementWindow"
     />
 
     <!-- コーナールール表示 -->
@@ -141,7 +141,8 @@ const {
   undo,
 } = useGame()
 
-const currentView = ref('home')  // 'home' | 'corner' | 'game' | 'announcement'
+const isAnnouncementWindow = new URLSearchParams(window.location.search).get('view') === 'announcement'
+const currentView = ref(isAnnouncementWindow ? 'announcement' : 'home')
 const selectedCorner = ref(null)
 const showTutorial = ref(false)
 const playerCount = ref(3)
@@ -172,6 +173,20 @@ function onSelectCorner(corner) {
     selectedCorner.value = corner
     currentView.value = 'corner'
   }
+}
+
+function openAnnouncementWindow() {
+  const url = new URL(import.meta.env.BASE_URL, window.location.origin)
+  url.searchParams.set('view', 'announcement')
+  window.open(url, 'piyopiyo-announcement', 'popup=yes,width=1280,height=720')
+}
+
+function closeAnnouncementWindow() {
+  if (window.opener) {
+    window.close()
+    return
+  }
+  currentView.value = 'home'
 }
 
 function startGame() {

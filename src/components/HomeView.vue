@@ -240,9 +240,9 @@
           <span class="tool-card__icon">📢</span>
           <div class="tool-card__text">
             <span class="tool-card__title">告知スライド</span>
-            <span class="tool-card__sub">お客さん向け・このウィンドウで表示</span>
+            <span class="tool-card__sub">お客さん向け・新しいウィンドウで表示</span>
           </div>
-          <span class="tool-card__ext">→</span>
+          <span class="tool-card__ext">↗</span>
         </button>
         <a
           v-for="tool in TOOLS"
