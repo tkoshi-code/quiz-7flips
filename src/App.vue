@@ -1,9 +1,33 @@
 <template>
   <div class="app">
 
-    <!-- セットアップ画面 -->
-    <div v-if="gameState.phase === 'setup'" class="setup-screen">
+    <!-- チュートリアル -->
+    <TutorialView v-if="showTutorial" @finish="showTutorial = false" />
+
+    <!-- ホーム -->
+    <HomeView
+      v-else-if="currentView === 'home'"
+      @selectCorner="onSelectCorner"
+      @openAnnouncement="currentView = 'announcement'"
+    />
+
+    <!-- 告知スライド -->
+    <AnnouncementView
+      v-else-if="currentView === 'announcement'"
+      @back="currentView = 'home'"
+    />
+
+    <!-- コーナールール表示 -->
+    <CornerRulesView
+      v-else-if="currentView === 'corner'"
+      :corner="selectedCorner"
+      @back="currentView = 'home'"
+    />
+
+    <!-- Flip 7 セットアップ -->
+    <div v-else-if="currentView === 'game' && gameState.phase === 'setup'" class="setup-screen">
       <div class="setup-card">
+        <button class="setup-back-btn" @click="currentView = 'home'">← ホームに戻る</button>
         <h1 class="setup-title">🃏 Flip 7</h1>
         <p class="setup-sub">クイズ正解者がカードを引く！7種類で Flip 7 達成！</p>
 
@@ -11,7 +35,7 @@
           <label>プレイヤー数</label>
           <div class="count-btns">
             <button
-              v-for="n in [2,3,4,5,6]"
+              v-for="n in [2,3,4,5,6,7,8,9,10]"
               :key="n"
               class="count-btn"
               :class="{ active: playerCount === n }"
@@ -45,7 +69,10 @@
           </div>
         </div>
 
-        <button class="btn-start" @click="startGame">ゲーム開始 →</button>
+        <div class="setup-actions">
+          <button class="btn-start" @click="startGame">ゲーム開始 →</button>
+          <button class="btn-tutorial" @click="showTutorial = true">📖 チュートリアル</button>
+        </div>
 
         <div class="setup-rules">
           <details>
@@ -67,7 +94,7 @@
     </div>
 
     <!-- ゲーム中 -->
-    <template v-else>
+    <template v-else-if="currentView === 'game'">
       <GameBoard
         :state="gameState"
         :validTargets="validTargets"
@@ -96,6 +123,10 @@ import { ref, reactive, computed } from 'vue'
 import { useGame } from './game/useGame.js'
 import GameBoard from './components/GameBoard.vue'
 import RoundSummary from './components/RoundSummary.vue'
+import TutorialView from './components/TutorialView.vue'
+import HomeView from './components/HomeView.vue'
+import CornerRulesView from './components/CornerRulesView.vue'
+import AnnouncementView from './components/AnnouncementView.vue'
 
 const {
   state: gameState,
@@ -110,6 +141,9 @@ const {
   undo,
 } = useGame()
 
+const currentView = ref('home')  // 'home' | 'corner' | 'game' | 'announcement'
+const selectedCorner = ref(null)
+const showTutorial = ref(false)
 const playerCount = ref(3)
 const winScore = ref(200)
 const playerConfigs = reactive([
@@ -119,12 +153,26 @@ const playerConfigs = reactive([
   { name: 'プレイヤー4' },
   { name: 'プレイヤー5' },
   { name: 'プレイヤー6' },
+  { name: 'プレイヤー7' },
+  { name: 'プレイヤー8' },
+  { name: 'プレイヤー9' },
+  { name: 'プレイヤー10' },
 ])
 
 const validTargets = computed(() => {
   if (gameState.phase !== 'targeting' || !gameState.pendingAction) return []
   return getValidTargets(gameState.pendingAction.sourceIndex, gameState.pendingAction.card)
 })
+
+function onSelectCorner(corner) {
+  if (corner.isGame) {
+    currentView.value = 'game'
+    gameState.phase = 'setup'
+  } else {
+    selectedCorner.value = corner
+    currentView.value = 'corner'
+  }
+}
 
 function startGame() {
   gameState.winScore = winScore.value
@@ -137,6 +185,7 @@ function startGame() {
 
 function handleNext() {
   if (gameState.players.some(p => p.totalScore >= gameState.winScore)) {
+    currentView.value = 'home'
     gameState.phase = 'setup'
   } else {
     nextRound()
@@ -165,6 +214,25 @@ function handleNext() {
   max-width: 480px;
   width: 100%;
   backdrop-filter: blur(8px);
+}
+
+.setup-back-btn {
+  display: block;
+  margin-bottom: 16px;
+  padding: 5px 12px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: #546e7a;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.setup-back-btn:hover {
+  border-color: rgba(255,255,255,0.3);
+  color: #90a4ae;
 }
 
 .setup-title {
@@ -200,10 +268,12 @@ function handleNext() {
 .count-btns {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .count-btn {
   flex: 1;
+  min-width: 44px;
   padding: 8px;
   border: 2px solid rgba(255,255,255,0.12);
   border-radius: 8px;
@@ -262,6 +332,13 @@ function handleNext() {
 .setup-name-input:focus { border-color: #42a5f5; }
 .setup-name-input::placeholder { color: #37474f; }
 
+.setup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
 .btn-start {
   width: 100%;
   padding: 14px;
@@ -273,7 +350,6 @@ function handleNext() {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s;
-  margin-bottom: 20px;
   font-family: inherit;
 }
 
@@ -281,6 +357,25 @@ function handleNext() {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(67,160,71,0.5);
   filter: brightness(1.08);
+}
+
+.btn-tutorial {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  color: #78909c;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.btn-tutorial:hover {
+  border-color: #ffd740;
+  color: #ffd740;
 }
 
 .setup-rules {

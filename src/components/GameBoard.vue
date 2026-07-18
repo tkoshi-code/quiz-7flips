@@ -18,6 +18,8 @@
         :player="player"
         :isActive="!player.busted && !player.passed"
         :lastDrawnCard="state.lastDrawnCard"
+        :compact="state.players.length >= 5"
+        :superCompact="state.players.length >= 7"
       />
     </div>
 
@@ -100,6 +102,16 @@
       </div>
     </div>
 
+    <!-- カウントダウンタイマー -->
+    <div class="game-board__timer">
+      <div v-if="countdown !== null" class="timer-display" :class="{ 'timer-display--urgent': countdown <= 3 }">
+        {{ countdown }}
+      </div>
+      <button class="timer-btn" @click="toggleCountdown">
+        {{ countdown !== null ? 'リセット' : '⏱ 10秒' }}
+      </button>
+    </div>
+
     <!-- ログ -->
     <div class="game-board__log">
       <div class="log-title">ゲームログ</div>
@@ -111,6 +123,7 @@
 </template>
 
 <script setup>
+import { ref, onUnmounted } from 'vue'
 import PlayerArea from './PlayerArea.vue'
 import { calculateRoundScore } from '../game/cards.js'
 
@@ -126,16 +139,34 @@ function runningScore(player) {
   if (!player) return 0
   return calculateRoundScore(player)
 }
+
+// カウントダウンタイマー
+const countdown = ref(null)
+let timerId = null
+
+function toggleCountdown() {
+  clearInterval(timerId)
+  countdown.value = 10
+  timerId = setInterval(() => {
+    countdown.value--
+    if (countdown.value <= 0) {
+      clearInterval(timerId)
+      countdown.value = 0
+    }
+  }, 1000)
+}
+
+onUnmounted(() => clearInterval(timerId))
 </script>
 
 <style scoped>
 .game-board {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 100vh;
-  padding: 16px;
-  max-width: 1100px;
+  padding: 12px 16px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -167,12 +198,20 @@ function runningScore(player) {
   gap: 12px;
 }
 
-.players-2 { grid-template-columns: 1fr 1fr; }
-.players-3 { grid-template-columns: 1fr 1fr 1fr; }
-.players-4 { grid-template-columns: 1fr 1fr; }
+.players-2  { grid-template-columns: 1fr 1fr; }
+.players-3  { grid-template-columns: 1fr 1fr 1fr; }
+.players-4  { grid-template-columns: 1fr 1fr; }
+.players-5  { grid-template-columns: 1fr 1fr 1fr; }
+.players-6  { grid-template-columns: 1fr 1fr 1fr; }
+.players-7  { grid-template-columns: repeat(4, 1fr); }
+.players-8  { grid-template-columns: repeat(4, 1fr); }
+.players-9  { grid-template-columns: repeat(5, 1fr); }
+.players-10 { grid-template-columns: repeat(5, 1fr); }
 
 @media (max-width: 700px) {
-  .players-2, .players-3, .players-4 { grid-template-columns: 1fr; }
+  .players-2, .players-3, .players-4,
+  .players-5, .players-6, .players-7,
+  .players-8, .players-9, .players-10 { grid-template-columns: 1fr 1fr; }
 }
 
 .game-board__controls {
@@ -294,6 +333,49 @@ function runningScore(player) {
   font-size: 0.72rem;
   font-weight: 400;
   opacity: 0.85;
+}
+
+/* タイマー */
+.game-board__timer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.timer-display {
+  font-size: 3rem;
+  font-weight: 900;
+  color: #ffd740;
+  min-width: 2.5ch;
+  text-align: center;
+  line-height: 1;
+  text-shadow: 0 0 16px rgba(255, 215, 64, 0.6);
+  transition: color 0.3s;
+}
+
+.timer-display--urgent {
+  color: #ff5252;
+  text-shadow: 0 0 16px rgba(255, 82, 82, 0.7);
+  animation: pulse 0.6s infinite;
+}
+
+.timer-btn {
+  padding: 8px 20px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: #cfd8dc;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.timer-btn:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
 }
 
 /* ログ */

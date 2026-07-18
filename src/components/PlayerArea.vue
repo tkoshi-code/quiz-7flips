@@ -5,6 +5,8 @@
       'player-area--active': isActive,
       'player-area--busted': player.busted,
       'player-area--passed': player.passed && !player.busted,
+      'player-area--compact': compact,
+      'player-area--super-compact': superCompact,
     }"
   >
     <!-- ヘッダー -->
@@ -75,6 +77,8 @@ const props = defineProps({
   player: { type: Object, required: true },
   isActive: { type: Boolean, default: false },
   lastDrawnCard: { type: Object, default: null },
+  compact: { type: Boolean, default: false },
+  superCompact: { type: Boolean, default: false },
 })
 
 const runningScore = computed(() => calculateRoundScore(props.player))
@@ -103,6 +107,117 @@ const runningScore = computed(() => calculateRoundScore(props.player))
 
 .player-area--passed {
   opacity: 0.7;
+}
+
+/* コンパクトモード（5〜6人） */
+.player-area--compact {
+  padding: 8px 10px;
+}
+
+.player-area--compact .player-area__header {
+  margin-bottom: 6px;
+}
+
+.player-area--compact .player-area__name {
+  font-size: 0.9rem;
+}
+
+.player-area--compact .player-area__score {
+  font-size: 0.75rem;
+}
+
+.player-area--compact .player-area__tableau {
+  min-height: 54px;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.player-area--compact .player-area__extras {
+  gap: 4px;
+  padding-top: 4px;
+  margin-bottom: 4px;
+}
+
+.player-area--compact .player-area__running {
+  font-size: 0.75rem;
+}
+
+.player-area--compact .player-area__running strong {
+  font-size: 0.85rem;
+}
+
+.player-area--compact :deep(.card) {
+  width: 44px;
+  height: 62px;
+  border-radius: 6px;
+}
+
+.player-area--compact :deep(.card__value) {
+  font-size: 1.4rem;
+}
+
+.player-area--compact :deep(.card__mod) {
+  font-size: 0.95rem;
+}
+
+.player-area--compact :deep(.card__action) {
+  font-size: 0.52rem;
+}
+
+/* スーパーコンパクトモード（7〜10人） */
+.player-area--super-compact {
+  padding: 6px 8px;
+}
+
+.player-area--super-compact .player-area__header {
+  margin-bottom: 4px;
+}
+
+.player-area--super-compact .player-area__name {
+  font-size: 0.8rem;
+}
+
+.player-area--super-compact .player-area__score {
+  font-size: 0.7rem;
+}
+
+.player-area--super-compact .player-area__tableau {
+  min-height: 42px;
+  gap: 3px;
+  margin-bottom: 3px;
+}
+
+.player-area--super-compact .player-area__extras {
+  gap: 3px;
+  padding-top: 3px;
+  margin-bottom: 3px;
+}
+
+.player-area--super-compact .player-area__running {
+  font-size: 0.7rem;
+}
+
+.player-area--super-compact .player-area__running strong {
+  font-size: 0.78rem;
+}
+
+.player-area--super-compact :deep(.card) {
+  width: 34px;
+  height: 48px;
+  border-radius: 4px;
+  border-width: 1px;
+}
+
+.player-area--super-compact :deep(.card__value) {
+  font-size: 1.1rem;
+}
+
+.player-area--super-compact :deep(.card__mod) {
+  font-size: 0.75rem;
+}
+
+.player-area--super-compact :deep(.card__action) {
+  font-size: 0.42rem;
 }
 
 .player-area__header {
